@@ -1,100 +1,141 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { usePagination } from "@/hooks/usePagination";
-import { storage } from "@/lib/storage";
-import { DataItem } from "@/types";
-
-const INITIAL_DATA: DataItem[] = Array.from({ length: 15 }, (_, i) => ({
-  id: `${Date.now()}-${i}`,
-  name: `User Demo ${i + 1}`,
-  role: i % 2 === 0 ? "Frontend Dev" : "UI/UX Designer",
-  email: `user${i + 1}@aksa.id`
-}));
+import api from "@/lib/axios";
+import { Employee, Division, ApiResponse } from "@/types";
 
 export const useDashboard = () => {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  const [data, setData] = useState<DataItem[]>([]);
+  // API Data States
+  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [divisions, setDivisions] = useState<Division[]>([]);
+  const [loading, setLoading] = useState(false);
+  
+  // UI States
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [editingItem, setEditingItem] = useState<DataItem | null>(null);
-  const [formData, setFormData] = useState({ name: "", role: "", email: "" });
+  const [editingItem, setEditingItem] = useState<Employee | null>(null);
+  const [formData, setFormData] = useState({
+    name: "",
+    phone: "",
+    division: "",
+    position: "",
+    image: null as File | null,
+  });
 
-  // Load Data
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      const storedData = storage.get<DataItem[]>("crud_data");
-      if (!storedData) {
-        storage.set("crud_data", INITIAL_DATA);
-        setData(INITIAL_DATA);
-      } else {
-        setData(storedData);
-      }
-    }, 0);
-    return () => clearTimeout(timer);
-  }, []);
-
-  // Filter & Pagination Logic
+  // URL Params Logic
   const pageParam = Number(searchParams.get("page")) || 1;
   const searchParam = searchParams.get("search") || "";
+  const divisionParam = searchParams.get("division") || "";
+  const [totalPages, setTotalPages] = useState(1);
 
-  const filteredData = data.filter((item) =>
-    item.name.toLowerCase().includes(searchParam.toLowerCase()) ||
-    item.role.toLowerCase().includes(searchParam.toLowerCase())
-  );
+  // 1. Fetch Data dari Laravel (Task 2 & 3)
+  const fetchData = useCallback(async () => {
+    setLoading(true);
+    try {
+      // Fetch Divisions (Buat dropdown di modal/filter)
+      const divRes = await api.get<ApiResponse<{ divisions: Division[] }>>("/divisions");
+      setDivisions(divRes.data.data.divisions);
 
-  const ITEMS_PER_PAGE = 5;
-  const { startIndex, endIndex, totalPages } = usePagination(filteredData.length, ITEMS_PER_PAGE, pageParam);
-  const currentData = filteredData.slice(startIndex, endIndex);
+      // Fetch Employees with Filter & Pagination
+      const empRes = await api.get<ApiResponse<{ employees: Employee[] }>>("/employees", {
+        params: {
+          name: searchParam,
+          division_id: divisionParam,
+          page: pageParam,
+        },
+      });
+      setEmployees(empRes.data.data.employees);
+      setTotalPages(empRes.data.pagination?.last_page || 1);
+    } catch (err) {
+      console.error("Fetch error, G!", err);
+    } finally {
+      setLoading(false);
+    }
+  }, [searchParam, divisionParam, pageParam]);
 
-  // Sync URL
-  const updateParams = (newPage: number, newSearch: string) => {
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
+
+  // Sync URL Params
+  const updateParams = (newPage: number, newSearch: string, newDiv?: string) => {
     const params = new URLSearchParams();
     if (newSearch) params.set("search", newSearch);
+    if (newDiv) params.set("division", newDiv);
     params.set("page", newPage.toString());
     router.replace(`?${params.toString()}`);
   };
 
   // Handlers
-  const openModal = (item?: DataItem) => {
+  const openModal = (item?: Employee) => {
     if (item) {
       setEditingItem(item);
-      setFormData({ name: item.name, role: item.role, email: item.email });
+      setFormData({
+        name: item.name,
+        phone: item.phone,
+        division: item.division.id,
+        position: item.position,
+        image: null,
+      });
     } else {
       setEditingItem(null);
-      setFormData({ name: "", role: "", email: "" });
+      setFormData({ name: "", phone: "", division: "", position: "", image: null });
     }
     setIsModalOpen(true);
   };
 
-  const handleSave = (e: React.FormEvent) => {
+  const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    let newData;
-    if (editingItem) {
-      newData = data.map((d) => (d.id === editingItem.id ? { ...d, ...formData } : d));
-    } else {
-      const newItem: DataItem = { id: Date.now().toString(), ...formData };
-      newData = [newItem, ...data];
+    const data = new FormData();
+    data.append("name", formData.name);
+    data.append("phone", formData.phone);
+    data.append("division", formData.division);
+    data.append("position", formData.position);
+    if (formData.image) data.append("image", formData.image);
+
+    try {
+      if (editingItem) {
+        // Task 5: Update (Gunakan POST + _method PUT untuk Multipart)
+        data.append("_method", "PUT");
+        await api.post(`/employees/${editingItem.id}`, data, {
+          headers: { "Content-Type": "multipart/form-data" },
+        });
+      } else {
+        // Task 4: Create
+        await api.post("/employees", data, {
+          headers: { "Content-Type": "multipart/form-data" },
+        });
+      }
+      setIsModalOpen(false);
+      fetchData(); // Refresh data
+    } catch (err: any) {
+      alert(err.response?.data?.message || "Gagal simpan data!");
     }
-    setData(newData);
-    storage.set("crud_data", newData);
-    setIsModalOpen(false);
   };
 
-  const handleDelete = (id: string) => {
-    if (confirm("yakin ?")) {
-      const newData = data.filter((item) => item.id !== id);
-      setData(newData);
-      storage.set("crud_data", newData);
+  const handleDelete = async (id: string) => {
+    if (confirm("Yakin mau hapus data ini, G?")) {
+      try {
+        await api.delete(`/employees/${id}`);
+        fetchData();
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      } catch (err) {
+        alert("Gagal hapus!");
+      }
     }
   };
 
   return {
-    data: currentData,
+    employees,
+    divisions,
+    loading,
     totalPages,
     pageParam,
     searchParam,
+    divisionParam,
     isModalOpen,
     setIsModalOpen,
     editingItem,
@@ -103,6 +144,6 @@ export const useDashboard = () => {
     updateParams,
     openModal,
     handleSave,
-    handleDelete
+    handleDelete,
   };
 };

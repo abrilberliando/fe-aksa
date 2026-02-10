@@ -2,37 +2,38 @@
 import { useState, useEffect, FormEvent } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useRouter } from "next/navigation";
+import api from "@/lib/axios"; // Pake api instance kita [cite: 2026-02-10]
 
 export const useProfileForm = () => {
-  const { user, updateProfile } = useAuth();
+  const { user } = useAuth();
   const [name, setName] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const router = useRouter();
 
-  // Sinkronisasi nama awal dari Global State ke Local State
   useEffect(() => {
-    if (user) {
-      const timer = setTimeout(() => {
-        setName(user.fullName);
-      }, 0);
-      return () => clearTimeout(timer);
+    if (user?.name) { // Ganti ke .name sesuai /me [cite: 2026-02-10]
+      setName(user.name);
     }
   }, [user]);
 
-  const handleSubmit = (e: FormEvent) => {
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (!name.trim()) {
-      alert("Nama jangan kosong !");
+      alert("Identity name required, G!");
       return;
     }
 
     setIsSaving(true);
-
-    setTimeout(() => {
-      updateProfile(name);
-      setIsSaving(false);
+    try {
+      await api.put("/profile/update", { name }); // Hit real API [cite: 2026-02-10]
+      alert("Profile synchronized successfully!");
       router.push("/dashboard");
-    }, 500);
+      window.location.reload(); // Refresh buat trigger /me di AuthProvider [cite: 2026-02-10]
+    } catch (error) {
+      alert("Update failed. System error.");
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return {
@@ -40,6 +41,6 @@ export const useProfileForm = () => {
     setName,
     isSaving,
     handleSubmit,
-    initials: name.charAt(0) || user?.fullName.charAt(0) || "A",
+    initials: name.charAt(0) || user?.name?.charAt(0) || "A",
   };
 };

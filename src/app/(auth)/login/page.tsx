@@ -23,7 +23,7 @@ export default function LoginPage() {
         
         <div className="text-center mb-8">
           <h1 className="text-2xl font-bold dark:text-white uppercase tracking-tight">AKSAMEDIA</h1>
-          <p className="mt-2 text-[10px] font-bold text-blue-500 tracking-widest">Hint: admin / 1234</p>
+          <p className="mt-2 text-[10px] font-bold text-blue-500 tracking-widest">Hint: admin / pastibisa</p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
